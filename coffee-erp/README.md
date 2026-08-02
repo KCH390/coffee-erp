@@ -36,7 +36,7 @@ See repo layout below. `sql/schema.sql` defines the data model;
 ## Setup
 
 ```bash
-git clone https://github.com/<your-username>/coffee-erp.git
+git clone https://github.com/KCH390/coffee-erp.git
 cd coffee-erp
 python -m venv venv
 source venv/bin/activate  # venv\Scripts\activate on Windows
@@ -59,10 +59,10 @@ output, before/after working capital comparison)*
 
 ## Background
 
-Built by Kerry Hall to apply manufacturing operations and quality engineering
-experience (Goodyear, Morgan Advanced Materials) to a generalized, public
+Built by Kerry Hall to apply business experience, manufacturing operations and quality engineering
+experience (Mathnasium, Goodyear, Morgan Advanced Materials) to a generalized, public
 version of the kinds of costing, scheduling, and inventory problems found in
-industrial settings.
+industrial and business settings.
 
 ## License
 
