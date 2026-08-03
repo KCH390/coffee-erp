@@ -45,7 +45,7 @@ INSERT INTO items (item_code, item_name, item_type, uom, standard_cost, sale_pri
 
 -- ---------- WORKSTATIONS ----------
 INSERT INTO workstations (workstation_name, hourly_rate, description) VALUES
-('Barista', 15.00, 'General barista labor -- brewing, steaming, assembly, add-ons');
+('Barista', 25.00, 'General barista labor -- brewing, steaming, assembly, add-ons');
 
 -- ============================================================
 -- FORMULAS (BOM) -- Tier 1: RM -> SFG

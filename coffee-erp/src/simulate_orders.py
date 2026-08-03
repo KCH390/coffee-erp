@@ -40,9 +40,9 @@ ITEM_POPULARITY = {
     "FG-LATTE-MOCHA": 12,
     "FG-BREWED": 15,
     "FG-AMERICANO": 12,
-    "FG-FRAPPE-CARAMEL": 8,
+    "FG-FRAPPE-CARAMEL": 10,
     "FG-FRAPPE-MOCHA": 7,
-    "FG-COLDBREW": 13,
+    "FG-COLDBREW": 11,
 }
 
 # Multiplier on FRAPPE items specifically for weekend days (treat-occasion
@@ -56,7 +56,7 @@ DAY_OF_WEEK_MULTIPLIER = {
     2: 0.95,  # Wed
     3: 1.00,  # Thu
     4: 1.10,  # Fri
-    5: 1.25,  # Sat
+    5: 1.35,  # Sat
     6: 1.15,  # Sun
 }
 

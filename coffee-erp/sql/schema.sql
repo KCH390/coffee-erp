@@ -114,14 +114,18 @@ CREATE TABLE orders (
 );
 
 CREATE TABLE order_lines (
-    order_line_id   INTEGER PRIMARY KEY AUTOINCREMENT,
-    order_id        INTEGER NOT NULL,
-    item_id         INTEGER NOT NULL,
-    quantity        REAL NOT NULL,
-    unit_price      REAL NOT NULL,
+    order_line_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id         INTEGER NOT NULL,
+    item_id          INTEGER NOT NULL,
+    quantity         REAL NOT NULL,
+    unit_price       REAL NOT NULL,
+    fulfilled        INTEGER NOT NULL DEFAULT 1,  -- set to 0 by inventory_engine.py on a stockout
+    original_item_id INTEGER,                     -- set by inventory_engine.py when the customer
+                                                    -- substituted away from this item due to a stockout
 
     FOREIGN KEY(order_id) REFERENCES orders(order_id),
-    FOREIGN KEY(item_id) REFERENCES items(item_id)
+    FOREIGN KEY(item_id) REFERENCES items(item_id),
+    FOREIGN KEY(original_item_id) REFERENCES items(item_id)
 );
 
 -- ---------- FINANCIALS (simple rollup, not double-entry) ----------
