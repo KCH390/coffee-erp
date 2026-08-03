@@ -1,6 +1,8 @@
 -- ============================================================
--- Seed Data: Items, Formulas (RM -> SFG -> FG)
+-- Seed Data: Items, Formulas (RM -> SFG -> FG), Routes, Route Operations
 -- Quantities are placeholders (oz/ea) -- replace with real recipe amounts.
+-- Route timing: source "hours" values converted to minutes (hours * 60),
+-- placed in run_minutes; setup_minutes left at 0 for now.
 -- ============================================================
 
 -- ---------- RAW MATERIALS ----------
@@ -40,11 +42,15 @@ INSERT INTO items (item_code, item_name, item_type, uom, standard_cost, sale_pri
 ('FG-FRAPPE-MOCHA',  'Mocha Frappe',     'finished_good', 'ea', 0, 5.75),
 ('FG-COLDBREW',      'Cold Brew',        'finished_good', 'ea', 0, 4.25);
 
+
+-- ---------- WORKSTATIONS ----------
+INSERT INTO workstations (workstation_name, hourly_rate, description) VALUES
+('Barista', 15.00, 'General barista labor -- brewing, steaming, assembly, add-ons');
+
 -- ============================================================
 -- FORMULAS (BOM) -- Tier 1: RM -> SFG
 -- ============================================================
 
--- Latte Base: Espresso + Whole Milk + Sugar
 INSERT INTO formulas (parent_item_id, component_item_id, quantity, scrap_pct)
 SELECT (SELECT item_id FROM items WHERE item_code='SFG-LATTE'), items.item_id, v.qty, 0.02
 FROM items JOIN (
@@ -53,7 +59,6 @@ FROM items JOIN (
     UNION ALL SELECT 'RM-SUGAR', 4.0
 ) v ON items.item_code = v.item_code;
 
--- Standard Base: Brewed Coffee + Half & Half + Sugar
 INSERT INTO formulas (parent_item_id, component_item_id, quantity, scrap_pct)
 SELECT (SELECT item_id FROM items WHERE item_code='SFG-STANDARD'), items.item_id, v.qty, 0.01
 FROM items JOIN (
@@ -62,12 +67,10 @@ FROM items JOIN (
     UNION ALL SELECT 'RM-SUGAR', 4.0
 ) v ON items.item_code = v.item_code;
 
--- Americano Base: Espresso only
 INSERT INTO formulas (parent_item_id, component_item_id, quantity, scrap_pct)
 SELECT (SELECT item_id FROM items WHERE item_code='SFG-AMERICANO'), item_id, 2.0, 0.02
 FROM items WHERE item_code = 'BASE-ESPRESSO';
 
--- Frappe Base: Espresso + Ice + Whole Milk + Sugar + Whipped Cream
 INSERT INTO formulas (parent_item_id, component_item_id, quantity, scrap_pct)
 SELECT (SELECT item_id FROM items WHERE item_code='SFG-FRAPPE'), items.item_id, v.qty, 0.03
 FROM items JOIN (
@@ -78,7 +81,6 @@ FROM items JOIN (
     UNION ALL SELECT 'RM-WHIPCREAM', 1.0
 ) v ON items.item_code = v.item_code;
 
--- Cold Brew Base: Cold Brew + Ice + Whole Milk + Sugar
 INSERT INTO formulas (parent_item_id, component_item_id, quantity, scrap_pct)
 SELECT (SELECT item_id FROM items WHERE item_code='SFG-COLDBREW'), items.item_id, v.qty, 0.02
 FROM items JOIN (
@@ -92,7 +94,6 @@ FROM items JOIN (
 -- FORMULAS (BOM) -- Tier 2: SFG (+ RM add-ons) -> FG
 -- ============================================================
 
--- Latte Standard: Latte Base + Sugar
 INSERT INTO formulas (parent_item_id, component_item_id, quantity, scrap_pct)
 SELECT (SELECT item_id FROM items WHERE item_code='FG-LATTE-STD'), items.item_id, v.qty, 0.0
 FROM items JOIN (
@@ -100,7 +101,6 @@ FROM items JOIN (
     UNION ALL SELECT 'RM-SUGAR', 2.0
 ) v ON items.item_code = v.item_code;
 
--- Spiced Latte: Latte Base + Nutmeg + Cinnamon + Hazelnut Syrup
 INSERT INTO formulas (parent_item_id, component_item_id, quantity, scrap_pct)
 SELECT (SELECT item_id FROM items WHERE item_code='FG-LATTE-SPICED'), items.item_id, v.qty, 0.0
 FROM items JOIN (
@@ -110,7 +110,6 @@ FROM items JOIN (
     UNION ALL SELECT 'SYRUP-HAZELNUT', 1.0
 ) v ON items.item_code = v.item_code;
 
--- Mocha Latte: Latte Base + Mocha Syrup + Cocoa Powder
 INSERT INTO formulas (parent_item_id, component_item_id, quantity, scrap_pct)
 SELECT (SELECT item_id FROM items WHERE item_code='FG-LATTE-MOCHA'), items.item_id, v.qty, 0.0
 FROM items JOIN (
@@ -119,17 +118,14 @@ FROM items JOIN (
     UNION ALL SELECT 'RM-COCOA', 2.0
 ) v ON items.item_code = v.item_code;
 
--- Brewed Coffee: Standard Base only
 INSERT INTO formulas (parent_item_id, component_item_id, quantity, scrap_pct)
 SELECT (SELECT item_id FROM items WHERE item_code='FG-BREWED'), item_id, 1.0, 0.0
 FROM items WHERE item_code = 'SFG-STANDARD';
 
--- Americano: Americano Base only
 INSERT INTO formulas (parent_item_id, component_item_id, quantity, scrap_pct)
 SELECT (SELECT item_id FROM items WHERE item_code='FG-AMERICANO'), item_id, 1.0, 0.0
 FROM items WHERE item_code = 'SFG-AMERICANO';
 
--- Caramel Frappe: Frappe Base + Caramel Syrup + Caramel Drizzle
 INSERT INTO formulas (parent_item_id, component_item_id, quantity, scrap_pct)
 SELECT (SELECT item_id FROM items WHERE item_code='FG-FRAPPE-CARAMEL'), items.item_id, v.qty, 0.0
 FROM items JOIN (
@@ -138,7 +134,6 @@ FROM items JOIN (
     UNION ALL SELECT 'RM-CARAMELDRIZZLE', 0.5
 ) v ON items.item_code = v.item_code;
 
--- Mocha Frappe: Frappe Base + Cocoa Powder + Mocha Syrup
 INSERT INTO formulas (parent_item_id, component_item_id, quantity, scrap_pct)
 SELECT (SELECT item_id FROM items WHERE item_code='FG-FRAPPE-MOCHA'), items.item_id, v.qty, 0.0
 FROM items JOIN (
@@ -147,7 +142,73 @@ FROM items JOIN (
     UNION ALL SELECT 'SYRUP-MOCHA', 1.0
 ) v ON items.item_code = v.item_code;
 
--- Cold Brew (FG): Cold Brew Base only
 INSERT INTO formulas (parent_item_id, component_item_id, quantity, scrap_pct)
 SELECT (SELECT item_id FROM items WHERE item_code='FG-COLDBREW'), item_id, 1.0, 0.0
 FROM items WHERE item_code = 'SFG-COLDBREW';
+
+-- ============================================================
+-- ROUTES -- one route header per item that has production steps
+-- (all intermediates + all finished goods, so future manual route
+-- edits have a place to attach even if a given item has 0 ops today)
+-- ============================================================
+
+INSERT INTO routes (item_id, route_name, description)
+SELECT item_id, item_code || ' Route', NULL
+FROM items
+WHERE item_type IN ('intermediate', 'finished_good');
+
+-- ============================================================
+-- ROUTE OPERATIONS -- SFG production steps (explicit, as provided)
+-- Source "hours" converted to minutes: run_minutes = hours * 60
+-- ============================================================
+
+INSERT INTO route_operations (route_id, operation_seq, operation_name, workstation_id, setup_minutes, run_minutes)
+SELECT rt.route_id, v.operation_seq, v.operation_name,
+       (SELECT workstation_id FROM workstations WHERE workstation_name='Barista'),
+       0, ROUND(v.hours * 60, 2)
+FROM routes rt
+JOIN items it ON it.item_id = rt.item_id
+JOIN (
+    SELECT 'SFG-LATTE' AS item_code, 1 AS operation_seq, 'Brew Espresso' AS operation_name, 0.033333 AS hours
+    UNION ALL SELECT 'SFG-LATTE', 2, 'Steam Milk', 0.033333
+
+    UNION ALL SELECT 'SFG-STANDARD', 1, 'Brew Coffee', 0.008333333
+    UNION ALL SELECT 'SFG-STANDARD', 2, 'Add Milk', 0.008333333
+    UNION ALL SELECT 'SFG-STANDARD', 3, 'Add Sugar', 0.008333333
+
+    UNION ALL SELECT 'SFG-AMERICANO', 1, 'Brew Espresso', 0.033333
+    UNION ALL SELECT 'SFG-AMERICANO', 2, 'Add Water', 0.033333
+
+    UNION ALL SELECT 'SFG-FRAPPE', 1, 'Brew Espresso', 0.0333333
+    UNION ALL SELECT 'SFG-FRAPPE', 2, 'Add Sugar', 0.008333333
+    UNION ALL SELECT 'SFG-FRAPPE', 3, 'Add Milk', 0.008333333
+    UNION ALL SELECT 'SFG-FRAPPE', 4, 'Add Ice', 0.008333333
+    UNION ALL SELECT 'SFG-FRAPPE', 5, 'Grind', 0.0333333
+
+    UNION ALL SELECT 'SFG-COLDBREW', 1, 'Brew Coffee', 0.008333333
+    UNION ALL SELECT 'SFG-COLDBREW', 2, 'Add Milk', 0.008333333
+    UNION ALL SELECT 'SFG-COLDBREW', 3, 'Add Sugar', 0.008333333
+    UNION ALL SELECT 'SFG-COLDBREW', 4, 'Add Ice', 0.008333333
+) v ON it.item_code = v.item_code;
+
+-- ============================================================
+-- ROUTE OPERATIONS -- FG-level "add raw material" steps, generated
+-- automatically: for every raw material directly in a finished good's
+-- formula, add an operation at 0.01 hr (0.6 min). Sequence continues
+-- after any existing operations on that item's route.
+-- ============================================================
+
+INSERT INTO route_operations (route_id, operation_seq, operation_name, workstation_id, setup_minutes, run_minutes)
+SELECT
+    rt.route_id,
+    ROW_NUMBER() OVER (PARTITION BY rt.route_id ORDER BY ci.item_code)
+        + COALESCE((SELECT MAX(ro.operation_seq) FROM route_operations ro WHERE ro.route_id = rt.route_id), 0),
+    'Add ' || ci.item_name,
+    (SELECT workstation_id FROM workstations WHERE workstation_name='Barista'),
+    0,
+    ROUND(0.01 * 60, 2)
+FROM formulas f
+JOIN items p  ON p.item_id = f.parent_item_id
+JOIN items ci ON ci.item_id = f.component_item_id
+JOIN routes rt ON rt.item_id = p.item_id
+WHERE p.item_type = 'finished_good' AND ci.item_type = 'raw_material';

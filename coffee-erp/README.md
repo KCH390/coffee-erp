@@ -67,3 +67,12 @@ industrial and business settings.
 ## License
 
 MIT
+
+
+## Setup Notes
+
+15 units/day per FG SKU (120 drinks/day total) - until simulation changes
+Lead times by category: dairy 2 days, coffee bases/dry goods/spices 5–7 days, ice 1 day
+Safety stock = 1–3 days depending on lead time volatility
+Pack sizes based on typical foodservice units (gallon jugs, 750ml syrup bottles, etc.)
+MOQ of 4 bottles/case for syrups (realistic distributor minimum); everything else MOQ = 1 pack
