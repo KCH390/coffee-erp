@@ -3,6 +3,7 @@
 -- ============================================================
 
 DROP TABLE IF EXISTS financial_transactions;
+DROP TABLE IF EXISTS purchase_orders;
 DROP TABLE IF EXISTS order_lines;
 DROP TABLE IF EXISTS orders;
 DROP TABLE IF EXISTS customers;
@@ -126,6 +127,18 @@ CREATE TABLE order_lines (
     FOREIGN KEY(order_id) REFERENCES orders(order_id),
     FOREIGN KEY(item_id) REFERENCES items(item_id),
     FOREIGN KEY(original_item_id) REFERENCES items(item_id)
+);
+
+-- ---------- PURCHASE ORDERS (durable reorder tracking, used by live_sim.py) ----------
+CREATE TABLE purchase_orders (
+    po_id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id           INTEGER NOT NULL,
+    order_date        TEXT NOT NULL,
+    expected_arrival  TEXT NOT NULL,
+    quantity          REAL NOT NULL,
+    status            TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','received')),
+
+    FOREIGN KEY(item_id) REFERENCES items(item_id)
 );
 
 -- ---------- FINANCIALS (simple rollup, not double-entry) ----------

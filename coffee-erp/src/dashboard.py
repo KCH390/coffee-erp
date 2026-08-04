@@ -11,6 +11,7 @@ Expects data/coffee_shop.db to already exist and be populated via:
 """
 
 import sqlite3
+import time
 from pathlib import Path
 
 import pandas as pd
@@ -108,7 +109,9 @@ def load_orders_daily(db_path):
         orders=("order_id", "nunique"),
         lines=("order_id", "size"),
         revenue=("revenue", "sum"),
+        fulfilled_lines=("fulfilled", "sum"),
     )
+    daily["fulfillment_rate"] = daily["fulfilled_lines"] / daily["lines"]
     return daily
 
 
@@ -201,6 +204,14 @@ def main():
     if st.sidebar.button("Clear cache / reload data"):
         st.cache_data.clear()
 
+    st.sidebar.divider()
+    auto_refresh = st.sidebar.checkbox(
+        "Auto-refresh (for use with live_sim.py)", value=False
+    )
+    refresh_seconds = st.sidebar.number_input(
+        "Refresh every (seconds)", min_value=1, max_value=60, value=5, disabled=not auto_refresh
+    )
+
     st.title("☕ Coffee Shop ERP Dashboard")
 
     # ---- KPI row ----
@@ -275,6 +286,39 @@ def main():
         c1.line_chart(orders_daily["orders"])
         c2.line_chart(orders_daily["revenue"])
 
+        st.subheader("Last 30 Days: Rolling Averages")
+        st.caption(
+            "Smooths out day-to-day noise (weekday/weekend swings, random variation) "
+            "to show the underlying trend."
+        )
+        last_30 = orders_daily.tail(30).copy()
+        rolling = orders_daily[["revenue", "orders", "fulfillment_rate"]].rolling(30, min_periods=1).mean()
+        rolling = rolling.tail(30)
+        rolling.columns = ["30d_avg_revenue", "30d_avg_orders", "30d_avg_fulfillment_rate"]
+
+        c3, c4 = st.columns(2)
+        c3.line_chart(pd.DataFrame({
+            "daily": last_30["revenue"],
+            "30-day avg": rolling["30d_avg_revenue"],
+        }))
+        c3.caption("Revenue: daily vs. 30-day rolling average")
+        c4.line_chart(pd.DataFrame({
+            "daily": last_30["orders"],
+            "30-day avg": rolling["30d_avg_orders"],
+        }))
+        c4.caption("Orders: daily vs. 30-day rolling average")
+
+        st.line_chart(pd.DataFrame({
+            "daily": last_30["fulfillment_rate"],
+            "30-day avg": rolling["30d_avg_fulfillment_rate"],
+        }))
+        st.caption("Fulfillment rate: daily vs. 30-day rolling average")
+
+        m1, m2, m3 = st.columns(3)
+        m1.metric("30-Day Avg Daily Revenue", f"${rolling['30d_avg_revenue'].iloc[-1]:,.0f}")
+        m2.metric("30-Day Avg Daily Orders", f"{rolling['30d_avg_orders'].iloc[-1]:,.0f}")
+        m3.metric("30-Day Avg Fulfillment Rate", f"{rolling['30d_avg_fulfillment_rate'].iloc[-1]:.1%}")
+
         st.subheader("Fulfillment Outcomes")
         st.bar_chart(fulfillment.set_index("outcome")["n"])
 
@@ -293,10 +337,22 @@ def main():
             "CURRENT standard cost (an approximation, not true historical costing)."
         )
         wc_series = load_working_capital_series(db_path)
-        st.line_chart(wc_series)
+        wc_last_30 = wc_series.tail(30)
+        wc_rolling_30 = wc_series.rolling(30, min_periods=1).mean().tail(30)
+        st.line_chart(pd.DataFrame({
+            "daily": wc_last_30,
+            "30-day avg": wc_rolling_30,
+        }))
+
         st.metric("Latest Inventory Value", f"${wc_series.iloc[-1]:,.0f}")
+        st.metric("30-Day Avg Inventory Value", f"${wc_rolling_30.iloc[-1]:,.0f}")
         st.metric("Peak Inventory Value", f"${wc_series.max():,.0f}")
-        st.metric("Average Inventory Value", f"${wc_series.mean():,.0f}")
+        st.metric("All-Time Average Inventory Value", f"${wc_series.mean():,.0f}")
+
+    if auto_refresh:
+        time.sleep(refresh_seconds)
+        st.cache_data.clear()
+        st.rerun()
 
 
 if __name__ == "__main__":
