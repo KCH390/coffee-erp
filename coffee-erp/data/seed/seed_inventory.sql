@@ -46,7 +46,12 @@ FROM items JOIN (
     UNION ALL SELECT 'RM-CARAMELDRIZZLE' AS item_code, 140 AS on_hand_qty, 77.78 AS reorder_point, 140 AS reorder_qty, 5 AS lead_time_days, 20 AS pack_size, 1 AS min_order_qty
 ) v ON items.item_code = v.item_code;
 
--- Opening balance transactions, one per raw material, for audit trail
-INSERT INTO inventory_transactions (item_id, txn_type, quantity, unit_cost, reference)
-SELECT i.item_id, 'receipt', i.on_hand_qty, it.standard_cost, 'Opening Balance'
+-- Opening balance transactions, one per raw material, for audit trail.
+-- Dated well in the past (not the default datetime('now')) so it
+-- chronologically precedes any simulated order history -- simulate_orders.py
+-- generates dates going back up to --days days from "now" at the time IT
+-- runs, which is always after this seed runs, so anchoring 400 days back
+-- keeps this ahead of any reasonable --days value.
+INSERT INTO inventory_transactions (item_id, txn_type, quantity, unit_cost, txn_date, reference)
+SELECT i.item_id, 'receipt', i.on_hand_qty, it.standard_cost, datetime('now', '-400 days'), 'Opening Balance'
 FROM inventory i JOIN items it ON it.item_id = i.item_id;
