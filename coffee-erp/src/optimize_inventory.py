@@ -44,7 +44,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from inventory_engine import run_engine
+from inventory_engine import load_bom_explosion, run_engine
 
 REVIEW_PERIOD_DAYS = 5  # same order-cycle buffer used in the original seed_inventory.sql
 
@@ -88,19 +88,57 @@ def norm_ppf(p):
 
 def compute_demand_stats(conn, since=None):
     """
-    Mean and std of DAILY demand per raw material, from actual consumption
-    history. If `since` is given (a "YYYY-MM-DD HH:MM:SS" string), only
-    transactions on or after that date are used -- for a rolling-window
-    recalibration rather than all-time history.
+    Mean and std of DAILY REQUESTED demand per raw material, derived by
+    exploding true customer requests through the BOM.
+
+    This replaced an earlier version that read inventory_transactions
+    'consumption' records directly. Those are only ever logged when a
+    line is actually FULFILLED (see inventory_engine.py / live_sim.py --
+    the consumption insert is inside the can_fulfill branch), so demand
+    from stockout lines was silently dropped. That understates mean and
+    variance for chronically under-stocked items, which then sizes an
+    even smaller safety stock on the next recalibration -- a feedback
+    loop that compounds a stockout problem instead of fixing it. It also
+    compounds at the raw-material level: a stockout on ANY ingredient in
+    a recipe silently suppresses the recorded consumption of every OTHER
+    ingredient in that same line, even ones that weren't the bottleneck.
+
+    Fix: use COALESCE(original_item_id, item_id) on order_lines to
+    recover what was actually requested, regardless of whether it was
+    fulfilled, then explode that through the BOM to raw materials --
+    same approach validated empirically in notebooks/demand_forecasting.ipynb.
+
+    If `since` is given (a "YYYY-MM-DD HH:MM:SS" string), only orders on
+    or after that date are used -- for a rolling-window recalibration.
     """
-    query = "SELECT item_id, txn_date, quantity FROM inventory_transactions WHERE txn_type='consumption'"
+    bom_explosion = load_bom_explosion(conn)  # {fg_item_id: {rm_item_id: qty_per_unit}}
+    bom_rows = [
+        (fg_id, rm_id, qty_per_unit)
+        for fg_id, explosion in bom_explosion.items()
+        for rm_id, qty_per_unit in explosion.items()
+    ]
+    bom_df = pd.DataFrame(bom_rows, columns=["fg_item_id", "rm_item_id", "qty_per_unit"])
+
+    query = """
+        SELECT o.order_date, COALESCE(ol.original_item_id, ol.item_id) AS effective_item_id, ol.quantity
+        FROM order_lines ol JOIN orders o ON o.order_id = ol.order_id
+        JOIN items it ON it.item_id = COALESCE(ol.original_item_id, ol.item_id)
+        WHERE it.item_type = 'finished_good'
+    """
     params = ()
     if since is not None:
-        query += " AND txn_date >= ?"
+        query += " AND o.order_date >= ?"
         params = (since,)
-    txns = pd.read_sql_query(query, conn, params=params)
-    txns["date"] = pd.to_datetime(txns["txn_date"]).dt.normalize()
-    daily = txns.groupby(["item_id", "date"])["quantity"].sum().abs().unstack("item_id").fillna(0)
+    lines = pd.read_sql_query(query, conn, params=params)
+
+    if len(lines) == 0 or len(bom_df) == 0:
+        return pd.Series(dtype=float), pd.Series(dtype=float)
+
+    lines["date"] = pd.to_datetime(lines["order_date"]).dt.normalize()
+    merged = lines.merge(bom_df, left_on="effective_item_id", right_on="fg_item_id")
+    merged["rm_qty"] = merged["qty_per_unit"] * merged["quantity"]
+
+    daily = merged.groupby(["rm_item_id", "date"])["rm_qty"].sum().unstack("rm_item_id").fillna(0)
     full_range = pd.date_range(daily.index.min(), daily.index.max(), freq="D")
     daily = daily.reindex(full_range).fillna(0)
     return daily.mean(), daily.std()
@@ -273,7 +311,7 @@ def main():
         "-- statistical safety-stock formula:",
         "--     reorder_point = mean_daily_demand * lead_time",
         f"--                     + z * std_daily_demand * sqrt(lead_time), z={best_z:.3f}",
-        "-- mean/std daily demand measured from actual simulated consumption",
+        "-- mean/std daily demand measured from actual REQUESTED demand",
         "-- history (not assumed). z was found by re-running the real",
         "-- inventory_engine against actual order history at different z",
         "-- values until simulated fulfillment matched the target -- see",

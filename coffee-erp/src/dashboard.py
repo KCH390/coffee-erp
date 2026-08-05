@@ -18,6 +18,7 @@ import pandas as pd
 import streamlit as st
 
 from optimize_inventory import compute_demand_stats, compute_policy, norm_ppf
+from forecast_demand import run_forecast
 
 DEFAULT_DB_PATH = "data/coffee_shop.db"
 
@@ -301,8 +302,8 @@ def main():
 
     st.divider()
 
-    tab_inventory, tab_costing, tab_orders, tab_working_capital = st.tabs(
-        ["📦 Inventory", "💰 Costing & Margin", "🧾 Orders & Fulfillment", "📈 Working Capital"]
+    tab_inventory, tab_costing, tab_orders, tab_working_capital, tab_forecast = st.tabs(
+        ["📦 Inventory", "💰 Costing & Margin", "🧾 Orders & Fulfillment", "📈 Working Capital", "🔮 Demand Forecast"]
     )
 
     # ---- Inventory tab ----
@@ -455,6 +456,49 @@ def main():
             )
         else:
             st.info("Not enough consumption history yet to estimate the service-level curve.")
+
+    # ---- Demand Forecast tab ----
+    with tab_forecast:
+        st.subheader("ML Demand Forecast")
+        st.caption(
+            "Forecasts TRUE requested demand (not just fulfilled sales) using a "
+            "RandomForestRegressor on day-of-week and item features. Read-only -- "
+            "never writes to the database, safe to recalculate anytime."
+        )
+
+        if st.button("🔄 Recalculate Forecast"):
+            with st.spinner("Training models..."):
+                with sqlite3.connect(db_path) as conn:
+                    st.session_state["forecast_result"] = run_forecast(conn, seed=42, verbose=False)
+
+        result = st.session_state.get("forecast_result")
+        if result is None:
+            st.info("Click 'Recalculate Forecast' to train the model against current data.")
+        else:
+            metrics = result["metrics"]
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Historical Baseline MAE", f"{metrics['mae_baseline']:.2f}")
+            c2.metric("Naive (fulfilled-trained) MAE", f"{metrics['mae_naive_fulfilled_model']:.2f}")
+            c3.metric("Correct (requested-trained) MAE", f"{metrics['mae_correct_requested_model']:.2f}")
+            st.caption(
+                "All three evaluated against TRUE requested demand. The 'correct' model is "
+                "trained on requested quantity (what customers actually wanted, via "
+                "original_item_id), not fulfilled sales -- see notebooks/demand_forecasting.ipynb "
+                "for why that gap matters and grows as stockouts get more frequent."
+            )
+
+            st.subheader("Forecast Bias by Item")
+            st.caption("Sorted by historical stockout rate. Positive = over-predicts, negative = under-predicts.")
+            st.dataframe(result["bias_by_item"], use_container_width=True, hide_index=True)
+
+            st.subheader("Predicted vs. Actual, by Item")
+            preds = result["predictions"]
+            item_choice = st.selectbox("Item", sorted(preds["item_code"].unique()))
+            sub = preds[preds.item_code == item_choice].sort_values("date")
+            st.line_chart(sub.set_index("date")[["requested_qty", "predicted_requested"]])
+
+            st.subheader("Feature Importance")
+            st.bar_chart(result["importances"].head(10))
 
     if auto_refresh:
         time.sleep(refresh_seconds)

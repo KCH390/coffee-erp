@@ -1,0 +1,7 @@
+{
+  "mae_baseline": 9.66849816849817,
+  "mae_naive_fulfilled_model": 9.634521733874893,
+  "rmse_naive_fulfilled_model": 12.242765025947042,
+  "mae_correct_requested_model": 9.554810992833431,
+  "rmse_correct_requested_model": 11.956526405213607
+}
