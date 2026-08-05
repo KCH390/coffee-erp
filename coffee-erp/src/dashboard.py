@@ -17,6 +17,8 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+from optimize_inventory import compute_demand_stats, compute_policy, norm_ppf
+
 DEFAULT_DB_PATH = "data/coffee_shop.db"
 
 
@@ -184,6 +186,71 @@ def load_working_capital_series(db_path):
     return total_value
 
 
+@st.cache_data
+def load_service_level_curve(db_path):
+    """
+    Estimated average inventory $ needed to hit each fulfillment target
+    from 90% to 100%, based on the last 60 days of REAL consumption
+    history. This is an ANALYTICAL estimate, not a re-simulation:
+
+      1. mean/std daily demand per raw material, from actual consumption
+         over the last 60 days
+      2. for each target %, z = norm_ppf(target), then
+         reorder_point/reorder_qty via the same safety-stock formula
+         used in optimize_inventory.py
+      3. average on-hand estimated via the standard (s, Q) sawtooth
+         approximation: avg_units ~= reorder_point + reorder_qty / 2
+
+    This is deliberately NOT calling optimize_inventory.py's search
+    (which re-simulates via inventory_engine.run_engine()) -- that's
+    destructive to live data and too slow to run on every dashboard
+    load. The tradeoff: this curve tends to OVERSTATE the true cost of
+    high fulfillment targets, because it can't see the substitution
+    effect that lets the real system absorb some stockouts cheaply
+    (confirmed empirically in Phase 6: the analytical formula overshot
+    a 97% target and landed at 99.3% actual). Treat this as a rough,
+    conservative estimate -- run optimize_inventory.py for a validated
+    number at any specific target.
+    """
+    with sqlite3.connect(db_path) as conn:
+        anchor = conn.execute("SELECT MAX(txn_date) FROM inventory_transactions").fetchone()[0]
+        if anchor is None:
+            return pd.DataFrame(), 0.0
+        cutoff = (pd.to_datetime(anchor) - pd.Timedelta(days=60)).strftime("%Y-%m-%d %H:%M:%S")
+
+        mean_daily, std_daily = compute_demand_stats(conn, since=cutoff)
+
+        inv_rows = conn.execute(
+            "SELECT item_id, lead_time_days, pack_size, min_order_qty FROM inventory"
+        ).fetchall()
+        cost_by_item = pd.read_sql_query(
+            "SELECT item_id, standard_cost FROM items", conn
+        ).set_index("item_id")["standard_cost"]
+
+    lead_time_days = {r[0]: r[1] for r in inv_rows}
+    pack_size = {r[0]: r[2] for r in inv_rows}
+    min_order_qty = {r[0]: r[3] for r in inv_rows}
+    item_ids = [r[0] for r in inv_rows]
+
+    rows = []
+    for pct in range(90, 101):
+        target = min(pct / 100, 0.999)  # 100% is analytically undefined (infinite z); cap just under it
+        z = norm_ppf(target)
+        total_value = 0.0
+        for item_id in item_ids:
+            if item_id not in mean_daily.index:
+                continue
+            rp, rq = compute_policy(
+                z, mean_daily[item_id], std_daily.get(item_id, 0),
+                lead_time_days[item_id], pack_size[item_id], min_order_qty[item_id],
+            )
+            avg_units = rp + rq / 2  # (s, Q) sawtooth approximation
+            total_value += avg_units * cost_by_item.get(item_id, 0)
+        rows.append({"target_fulfillment_pct": pct, "estimated_avg_inventory_value": total_value})
+
+    return pd.DataFrame(rows).set_index("target_fulfillment_pct"), 60
+
+
 # ---------------------------------------------------------------------
 # UI
 # ---------------------------------------------------------------------
@@ -348,6 +415,46 @@ def main():
         st.metric("30-Day Avg Inventory Value", f"${wc_rolling_30.iloc[-1]:,.0f}")
         st.metric("Peak Inventory Value", f"${wc_series.max():,.0f}")
         st.metric("All-Time Average Inventory Value", f"${wc_series.mean():,.0f}")
+
+        st.divider()
+        st.subheader("Inventory Freed by Optimization")
+        curve, window_days = load_service_level_curve(db_path)
+        if len(curve):
+            cost_at_100 = curve.loc[100, "estimated_avg_inventory_value"]
+            current_avg = wc_rolling_30.iloc[-1]
+            freed_pct = (cost_at_100 - current_avg) / cost_at_100 if cost_at_100 else 0
+            freed_dollars = cost_at_100 - current_avg
+
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Inventory % Freed vs. 100%-Fulfillment Policy", f"{freed_pct:.1%}")
+            c2.metric("Current Avg Inventory (last 30d)", f"${current_avg:,.0f}")
+            c3.metric("Est. Cost of Chasing 100% Fulfillment", f"${cost_at_100:,.0f}")
+            if freed_dollars < 0:
+                st.caption(
+                    "Current inventory is running HIGHER than the estimated 100%-fulfillment "
+                    "cost -- likely means recent demand has shifted, or the current policy hasn't "
+                    "been recalibrated recently."
+                )
+
+            st.subheader(f"Estimated Holding Cost by Fulfillment Target (last {window_days} days of demand)")
+            st.caption(
+                "Analytical estimate using the safety-stock formula, not a full re-simulation -- "
+                "tends to OVERSTATE the true cost of high targets since it can't see the "
+                "substitution effect (confirmed in Phase 6: this method overshot a 97% target and "
+                "landed at 99.3% actual). Treat as a rough, conservative estimate; run "
+                "`optimize_inventory.py` for a validated number at a specific target."
+            )
+            st.bar_chart(curve["estimated_avg_inventory_value"])
+            st.dataframe(
+                curve.reset_index().rename(columns={
+                    "target_fulfillment_pct": "Target Fulfillment %",
+                    "estimated_avg_inventory_value": "Estimated Avg Inventory Value ($)",
+                }),
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.info("Not enough consumption history yet to estimate the service-level curve.")
 
     if auto_refresh:
         time.sleep(refresh_seconds)
